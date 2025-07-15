@@ -1,0 +1,458 @@
+---
+title: "Dostep do sluzby zdrowia a dynamika zakazen"
+author: "AJ"
+date: "12/12/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+Polska przestrzennie: zakazenia, zgony, seroprewalencja a HCA
+
+#Analiza wstępna (stabilność modeli)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(pheatmap)
+library(egg)
+library(Hmisc)
+library(lavaan)
+library(lavaanPlot)
+library(dplyr) 
+library(tidyr)
+library(knitr)
+library(semPlot)
+library(plotly)
+library(caret)
+library(car)
+library(leaps)
+library(MASS)
+
+load("dostepnosc2.RData")
+
+```
+PctExp- wyjaśniana zmienność
+
+Model regresji czynnikowej z interakcjami na poziomie województw (rzutowanie -zmienna wyjaśniani na seroprewalencję >20 lat z pierwszej tury Obser-co)
+
+
+
+
+```{r }
+mod_sero=lm(obser_cov~ case_3rd_wave+case_3rd_wave*HeathCareAccess_per_w+HeathCareAccess_w*case_3rd_wave+case_3rd_wave*HeathCareAccess_per_w*proc_vac_full_w, data=woj_com)
+
+af <- anova(mod_sero)
+afss <- af$"Sum Sq"
+proc_sero<-cbind(af,PctExp=afss/sum(afss)*100)
+
+proc_sero
+
+```
+
+Dlatego dobrą zmienną pośrednicząca między skumulowaną liczbą zakażeń a wynikami serologicznymi (realizowanymi na wczesnym etapie szczepień populacyjnych) jest dostępność do podażowa służby zdrowia.
+```{r}
+knitr::include_graphics("sero_diag.png", dpi=100)
+```
+
+
+
+```{r }
+mod_hosp=lm(hosp~ case_3rd_wave+case_3rd_wave*HeathCareAccess_per_w+HeathCareAccess_w*case_3rd_wave+case_3rd_wave*HeathCareAccess_per_w*proc_vac_1dose_w, data=woj_com)
+
+af <- anova(mod_hosp)
+afss <- af$"Sum Sq"
+proc_hosp<-cbind(af,PctExp=afss/sum(afss)*100)
+
+proc_hosp
+
+```
+
+
+model regresji czynnikowej z interakcjami na poziomie powiatów (rzutowanie - zmienna wyjaśniana na liczbę przypadków w drugiej połowie września) 
+
+Specjalnie wybraliiśmy ostatnie 2 tygodnie września/przełom pażdziernika jako w miarę niezależny od dochodu (już importowane przypadki z wakacji nie powinny wpływać za bardzo a zaraz zaczną się ogniska w ośrodkach akademickich, które zaburzą obraz).
+
+```{r }
+mod_zakazenia=lm(inf_autumn~ vacc_* HealthCareAcc*size_COVID*HealthAcc_phys, data=vacc_sel_norm)
+
+af <- anova(mod_zakazenia)
+afss <- af$"Sum Sq"
+proc_zakazenia<-cbind(af,PctExp=afss/sum(afss)*100)
+proc_zakazenia
+```
+Bardzo dobrą zmienną wyjaśniającą zapadalność jest dostępność popytowa do służby zdrowia, która to wyjaśnia zdecydowaną większość zmienności w modelu. Warto podkreślić, że poziom zaszczepienia czy skumulowana liczba zakaźeń na miekszańca w poprzednich falach, nie mają specjalnie znaczenia patrząc na zapadalność w 4-tej fali. 
+
+```{r}
+knitr::include_graphics("zak_diag.png", dpi=100)
+```
+
+
+
+Model regresji czynnikowej z interakcjami na poziomie powiatów (rzutowanie - zmienna wyjaśniana na liczbę zgonów 15.09-21.11) 
+
+```{r }
+mod_zgony=lm(deaths_norm~vacc_* HealthCareAcc*size_COVID*HealthAcc_phys, data=vacc_zgony)
+
+
+af <- anova(mod_zgony)
+afss <- af$"Sum Sq"
+proc_zgony<-cbind(af,PctExp=afss/sum(afss)*100)
+proc_zgony
+```
+Dobrą zmienną wyjaśniającą umieralność jest dostępność popytowa do służby zdrowia. Poziom zaszczepienia (6%) czy skumulowana liczba zakaźeń na miekszańca w poprzednich falach (2%), mają istotne znaczenie, ale wciąż dostęp popytowy do służby zdrowia jest najważniejszy (12%).
+
+```{r}
+knitr::include_graphics("current_deaths.png", dpi=200)
+```
+
+
+
+
+
+#Dodatowe analizy diagnostyczne
+
+```{r }
+
+par(mfrow=c(2,1))
+
+
+plot(vacc_sel_norm$vacc_*100, vacc_sel_norm$rt, main = "Real time Reproduction rate (04.10.21) vs vaccination coverage by poviats", ylab = "Rt (2-weekly window)", xlab = "% vaccination coverage", pch=16, col="green") 
+
+
+plot(vacc_sel_norm$vacc_*100, vacc_sel_norm$tests, main = "Test positivity (04.10.21) vs vaccination coverage by poviats", ylab = "% of positive tests (weekly mean)", xlab = "% vaccination coverage", pch=16, col="blue") 
+
+par(mfrow=c(2,1))
+
+plot(vacc_sel_norm$vacc_*100, vacc_sel_norm$inf_autumn, main = "Incidence (04.10.21) vs vaccination coverage by poviats", ylab = "14day cumulative notifications per 1 000 000", xlab = "% vaccination coverage", pch=16, col="red") 
+
+plot(vacc_zgony$vacc_*100, vacc_zgony$deaths_norm, main = "Normalized Covid deaths (15.09-21.11.21) vs vaccination coverage by poviats", ylab = "death rate 4th wave", xlab = "% vaccination coverage", pch=16, col="yellow") 
+
+
+```
+Należy zauważyć, że obecna 4-ta fala w ujęciu powiatowym nie koreluje
+ani z poziomem wyszczepienia (wykresy różnych zmiennych opisujących aktualną dynamikę), ani oficjalną notowabą odpornością pochorobową.
+Jedynie udział osób zaszczepionych jest związany z umieralnością na COVID w 4-tej fali i ją redukuje. Trzeba jednak pamiętać, że to zależy też od dostępu do ochrony zdrowia, poziomu odporności po przechorowaniu czy innych czynników jak demografia.
+```{r}
+
+vacc_zgony2=vacc_zgony[which(vacc_zgony$deaths>0),]
+
+pl_inf<-ggplot(vacc_zgony, aes(HealthCareAcc,inf_autumn, size=vacc_, color=size_COVID)) + theme_bw()+
+  geom_point() + xlab("Demand HCA")+ylab("Incidence 4th wave") +geom_text(aes(label=county),hjust=0, vjust=0, color="red", size=2)
+
+pl_death <- ggplot(vacc_zgony2, aes(HealthCareAcc,deaths_norm, size=vacc_, color=size_COVID)) + theme_bw()+
+  geom_point() + xlab("Demand HCA")+ylab("death rate 4th wave") +geom_text(aes(label=county),hjust=0, vjust=0, color="red", size=2)
+
+ggarrange(pl_inf, pl_death)
+
+```
+Dynamika zakażeń (zapadalność i zgony) zależą w dużej mierze od dostępności popytowej do służby zdrowia, ale w sposób nieliowy
+
+```{r}
+mod_zgony2=lm(deaths_norm~vacc_+ I(HealthCareAcc*HealthCareAcc)+ HealthCareAcc*size_COVID+vacc_* HealthCareAcc*size_COVID*HealthAcc_phys, data=vacc_zgony)
+
+
+af <- anova(mod_zgony2)
+afss <- af$"Sum Sq"
+proc_zgony2<-cbind(af,PctExp=afss/sum(afss)*100)
+proc_zgony2
+```
+Duże znaczenie ma wyraz kwadratowy dostępności popytowej do służby zdrowia
+
+```{r}
+
+kor=cor(vacc_zgony[,c(14,15,17:20,23)], use="pairwise.complete.obs")
+pheatmap(kor, display_numbers = T)
+
+```
+Korealacje Pearsona między głównymi zmienymi analizy.
+
+
+```{r}
+
+vacc_zgony$cfr=vacc_zgony$Covid_deaths/(vacc_zgony$population_size*vacc_zgony$size_COVID)
+vacc_zgony$efr=vacc_zgony$excess_mortality/(vacc_zgony$size_COVID)
+
+hist(vacc_zgony$cfr)
+
+mod_cfr=lm(cfr~HealthCareAcc+HealthAcc_phys+HealthCareAcc*HealthAcc_phys, data=vacc_zgony)
+anova(mod_cfr)
+summary(mod_cfr)
+
+mod_efr=lm(efr~HealthCareAcc+HealthAcc_phys+HealthCareAcc*HealthAcc_phys, data=vacc_zgony)
+anova(mod_efr)
+summary(mod_efr)
+```
+Analiza pochodnych (np. CFR)
+
+```{r}
+
+kor=cor(vacc_zgony[,c(10,14,15,17:20,23)], use="pairwise.complete.obs")
+pheatmap(kor, display_numbers = T)
+vacc_zgony_names=vacc_zgony
+colnames(vacc_zgony_names)[c(10,14,15,17,20,23)]<-c("cummulative cases","Demand HCA", "Supply HCA", "incidence", "vaccination", "mortality")
+
+kor=cor(vacc_zgony_names[,c(10,14,15,17,20,23)], use="pairwise.complete.obs")
+pheatmap(kor, display_numbers = T)
+#nowy
+
+kor=cor(nowe[,c(4,12,17,25:29,34:36)], use="pairwise.complete.obs")
+pheatmap(kor, display_numbers = T)
+colnames(nowe)[29]="mortality_covid"
+colnames(nowe)[34]="vacc_inf_2022"
+colnames(nowe)[35]="rep_inf_2022"
+colnames(nowe)[36]="incidence_2022"
+pheatmap(corr_matrix, display_numbers = T)
+
+weighted_corr <- cov.wt(nowe[,c(4,12,17,25:29,34:36)], wt = nowe$population_size, cor = TRUE)
+corr_matrix <- weighted_corr$cor
+
+woj_com$deaths=1-woj_com$expected
+kor2=cor(woj_com[,c(7,9, 12:16,18)], use="pairwise.complete.obs")
+pheatmap(kor2, display_numbers = T)
+woj_com$deaths=1-woj_com$expected
+woj_com_names=woj_com
+colnames(woj_com_names)[c(7,9,12:15)]<-c("seroprevalence","hospitalization","vaccination","Demand HCA", "Supply HCA", "cummulative cases")
+kor2=cor(woj_com_names[,c(7,9, 12:15)], use="pairwise.complete.obs")
+kor2=cor(woj_com[,c(7,9, 12:15)], use="pairwise.complete.obs")
+
+pheatmap(kor2, display_numbers = T)
+
+cor_pow=rcorr(as.matrix(kor))
+cor_woj=rcorr(as.matrix(kor2))
+
+
+
+```
+Korealacje Pearsona między głównymi zmienymi analizy.
+
+
+```{r}
+
+
+vacc_zgony$jpt_kod_je=all_election2$jpt_kod_je
+vacc_zgony$x=all_election2$x
+vacc_zgony$y=all_election2$y
+
+#2022 opis nierownosci
+
+
+dane= inner_join(vacc_zgony, data1, by = c("jpt_kod_je"= "jpt_kod_je"))
+
+dane= inner_join(vacc_zgony_names, data1, by = c("jpt_kod_je"= "jpt_kod_je"))
+
+
+ map2=ggplot() +
+  theme_bw()+
+  geom_polygon(data = dane, 
+               aes(long, lat, group = group, fill = `cummulative cases`))+
+               #fill = "grey50", 
+               #alpha = 0,lwd=0.1,
+             #  colour = "white") +
+  # scale_color_manual(values = mycolors) +
+    scale_fill_continuous("Cum No. cases", type = "gradient")+
+  geom_point(data = dane, aes(x = x, y = y, color=`Demand HCA`, size =incidence))+
+#guides(color = FALSE)+
+  # scale_color_manual(values = mycolors) +
+   # scale_fill_continuous("%vaccinated", type = "viridis")+
+    scale_color_distiller("Demand HCA", palette="Greys") +
+  ggtitle("Link between Demand HCA and reported cases (current and cummulative)")
+ 
+map=ggplot() +
+  theme_bw()+
+  geom_polygon(data = dane, 
+               aes(long, lat, group = group, fill = vaccination))+
+               #fill = "grey50", 
+               #alpha = 0,lwd=0.1,
+             #  colour = "white") +
+  scale_fill_continuous("%vaccinated", type = "gradient")+
+  #  scale_color_brewer("%vaccinated", palette = "Spectral")+
+  geom_point(data = dane, aes(x = x, y = y, color=`Supply HCA`, size=mortality))+
+#guides(color = FALSE)+
+    scale_color_distiller("Supply HCA", palette="Greys") +
+  ggtitle("Link between Supply HCA and vaccination and mortality")
+
+```
+MApy - do pobrania z https://github.com/ajarynowski/Spatial_Covid_Poland
+
+
+```{r}
+
+
+
+```
+
+#Analiza SEM
+
+```{r}
+
+vacc_zgony2=vacc_zgony
+#scaling to standard normal distribution
+vacc_zgony2$HCA_demand<-scale(vacc_zgony$HealthCareAcc)
+vacc_zgony2$HCA_supply<-scale(vacc_zgony$HealthAcc_phys)
+vacc_zgony2$cumulative_cases<-scale(vacc_zgony$size_COVID)
+vacc_zgony2$vacc_fraq<-scale(vacc_zgony$vacc_)
+vacc_zgony2$deaths_<-scale(vacc_zgony$deaths_norm)
+vacc_zgony2$incidence<-scale(vacc_zgony$inf_autumn)
+
+
+
+model <- '
+  HCA_demand~~vacc_fraq+cumulative_cases
+   HCA_supply~~vacc_fraq+cumulative_cases
+  deaths_ ~ HCA_demand+cumulative_cases+vacc_fraq+HCA_supply'
+## sem function syntax
+fit.mod <- sem(model, data=vacc_zgony2, std.lv = TRUE, estimator = "MLM")
+
+
+# deaths_, incidence, CA_demand, cumulative_cases, vacc_fraq, HCA_supply
+
+model_dir <- '
+ vacc_fraq~~ HCA_demand+HCA_supply
+ cumulative_cases~~ HCA_demand+HCA_supply
+  deaths_ ~ HCA_demand+cumulative_cases+vacc_fraq+HCA_supply'
+## sem function syntax
+fit.mod_dir <- sem(model_dir, data=vacc_zgony2, std.lv = TRUE, estimator = "MLM")
+
+
+model_dir <- '
+  deaths_ ~ HCA_demand+cumulative_cases+vacc_fraq+HCA_supply'
+## sem function syntax
+fit.mod_dir <- sem(model_dir, data=vacc_zgony2, std.lv = TRUE, estimator = "MLM")
+
+standardizedsolution(fit.mod_dir, type = "std.all", se = TRUE, zstat = TRUE, pvalue = TRUE, ci = TRUE)%>% 
+ # filter(op == "~") %>% 
+  select(LV=lhs, Item=rhs, Coefficient=est.std, ci.lower, ci.upper, SE=se, Z=z, 'p-value'=pvalue)
+
+parameterEstimates(fit.mod_dir, standardized=TRUE, rsquare = TRUE) %>% 
+  filter(op == "r2") %>% 
+  select(Item=rhs, R2 = est) 
+
+standardizedsolution(fit.mod, type = "std.all", se = TRUE, zstat = TRUE, pvalue = TRUE, ci = TRUE)%>% 
+  filter(op == "~") %>% 
+  select(LV=lhs, Item=rhs, Coefficient=est.std, ci.lower, ci.upper, SE=se, Z=z, 'p-value'=pvalue)
+
+standardizedsolution(fit.mod, type = "std.all", se = TRUE, zstat = TRUE, pvalue = TRUE, ci = TRUE)%>% 
+  filter(op == "~~") %>% 
+  select(LV=lhs, Item=rhs, Coefficient=est.std, ci.lower, ci.upper, SE=se, Z=z, 'p-value'=pvalue)
+
+semPaths(fit.mod, what="paths", whatLabels="stand",rotation=1)
+```
+
+
+
+
+```{r}
+
+model_inc <- '
+  HCA_demand~~vacc_fraq+cumulative_cases
+   HCA_supply~~vacc_fraq+cumulative_cases
+  incidence ~ HCA_demand+cumulative_cases+vacc_fraq+HCA_supply'
+## sem function syntax
+fit.mod_inc <- sem(model_inc, data=vacc_zgony2, std.lv = TRUE, estimator = "MLM")
+
+standardizedsolution(fit.mod_inc, type = "std.all", se = TRUE, zstat = TRUE, pvalue = TRUE, ci = TRUE)%>% 
+ # filter(op == "~") %>% 
+  select(LV=lhs, Item=rhs, Coefficient=est.std, ci.lower, ci.upper, SE=se, Z=z, 'p-value'=pvalue)
+
+parameterEstimates(fit.mod_inc, standardized=TRUE, rsquare = TRUE) %>% 
+  filter(op == "r2") %>% 
+  select(Item=rhs, R2 = est) 
+
+semPaths(fit.mod_inc, what="paths", whatLabels="stand",rotation=1)
+
+
+```
+
+
+
+
+#Modele regresyjne właściwe
+
+
+
+```{r }
+vaccinationzgony_names=vacc_zgony
+colnames(vaccinationzgony_names)[c(10,14,15,17,20,23)]<-c("cummulative cases","Demand HCA", "Supply HCA", "incidence", "vaccination", "mortality")
+woj_com_names=woj_com
+colnames(woj_com_names)[c(7,9,12:15)]<-c("seroprevalence","hospitalization","vaccination","Demand HCA", "Supply HCA", "cummulative cases")
+vaccinationzgony_names$`cummulative cases`
+vaccinationzgony_names$vaccination
+vaccinationzgony_names$`Supply HCA`
+```
+
+
+
+
+```{r }
+mod_sero=lm(seroprevalence~ `cummulative cases`*`Supply HCA`+`Demand HCA`*`cummulative cases`+`cummulative cases`*vaccination + `Demand HCA`*vaccination+vaccination*`Supply HCA`+`Supply HCA`*`Demand HCA`, data=woj_com_names)
+
+af <- anova(mod_sero)
+afss <- af$"Sum Sq"
+proc_sero<-cbind(af,PctExp=afss/sum(afss)*100)
+
+proc_sero
+
+```
+
+
+
+```{r }
+mod_hosp=lm(hospitalization~`cummulative cases`*`Supply HCA`+`Demand HCA`*`cummulative cases`+`cummulative cases`*vaccination + `Demand HCA`*vaccination+vaccination*`Supply HCA`+`Supply HCA`*`Demand HCA`, data=woj_com_names)
+
+af <- anova(mod_hosp)
+afss <- af$"Sum Sq"
+proc_hosp<-cbind(af,PctExp=afss/sum(afss)*100)
+
+proc_hosp
+
+
+
+
+```
+
+
+
+
+```{r}
+#tabela zbiorcza
+woj_data=proc_hosp[,c(5,6)]
+woj_data2=cbind(woj_data, proc_sero[,c(5,6)])
+```
+
+
+
+```{r }
+mod_zakazenia=lm(incidence~`cummulative cases`*`Supply HCA`+`Demand HCA`*`cummulative cases`+`cummulative cases`*vaccination + `Demand HCA`*vaccination+vaccination*`Supply HCA`+`Supply HCA`*`Demand HCA`, data=vaccinationzgony_names)
+
+af <- anova(mod_zakazenia)
+afss <- af$"Sum Sq"
+proc_zakazenia<-cbind(af,PctExp=afss/sum(afss)*100)
+proc_zakazenia
+```
+ 
+
+```{r }
+mod_zgony=lm(mortality~`cummulative cases`*`Supply HCA`+`Demand HCA`*`cummulative cases`+`cummulative cases`*vaccination + `Demand HCA`*vaccination+vaccination*`Supply HCA`+`Supply HCA`*`Demand HCA`, data=vaccinationzgony_names)
+
+
+af <- anova(mod_zgony)
+afss <- af$"Sum Sq"
+proc_zgony<-cbind(af,PctExp=afss/sum(afss)*100)
+proc_zgony
+```
+
+
+
+```{r}
+#tabela zbiorcza powiaty i wojewodztwa
+woj_pow=cbind(woj_data2, proc_zakazenia[,c(5,6)], proc_zgony[,c(5,6)])
+vif(mod_zgony)
+vif(mod_zakazenia)
+
+
+
+```
+
+
+
+
